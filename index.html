@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>مهام الأسبوع</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<!-- jsPDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+body{
+  margin:0;
+  font-family:Tajawal,sans-serif;
+  background:linear-gradient(135deg,#020617,#0f172a);
+  color:#fff;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  min-height:100vh;
+}
+.container{
+  width:100%;
+  max-width:950px;
+  background:#020617;
+  padding:24px;
+  border-radius:20px;
+  box-shadow:0 25px 50px rgba(0,0,0,.7);
+  position:relative;
+}
+.top-inputs{display:flex; gap:10px; margin-bottom:12px;}
+.top-inputs input{flex:1; padding:10px; border-radius:10px; border:none;}
+.identity{text-align:center; margin-bottom:15px; font-weight:700; color:#38bdf8;}
+.export-btn{width:100%; margin-bottom:12px; padding:12px; font-weight:700; color:#38bdf8; border-radius:14px; border:1px solid rgba(56,189,248,.5); background:rgba(255,255,255,0.05); backdrop-filter:blur(10px); cursor:pointer; transition:0.3s;}
+.export-btn:hover{background:rgba(56,189,248,0.1);}
+table{width:100%; border-collapse:collapse; border-radius:14px; overflow:hidden;}
+th,td{padding:12px; text-align:center; border-left:1px solid #1e293b;}
+th:first-child, td:first-child{border-left:none;}
+th{color:#38bdf8;}
+td{border-bottom:none;}
+.day-separator td{border-top:2px solid #1e293b; border-bottom:2px solid #1e293b; color:#94a3b8; font-weight:700; text-align:right;}
+tr.today{background:linear-gradient(180deg,rgba(56,189,248,.08),rgba(56,189,248,.02)); outline:1.5px solid rgba(56,189,248,.45); outline-offset:-3px;}
+tr.done{background:linear-gradient(180deg,rgba(34,197,94,.08),rgba(34,197,94,.02)); outline:1.5px solid rgba(34,197,94,.45);}
+tr.today.done{outline-color:rgba(34,197,94,.6);}
+tr.locked{opacity:.45; filter:blur(.4px);}
+.locked-label{font-size:13px; color:#facc15;}
+.admin-panel{margin-top:15px; display:none; flex-direction:column; gap:10px;}
+.admin-panel input,.admin-panel select{padding:10px; border-radius:10px; border:none;}
+.admin-btn{margin-top:20px; width:100%; background:#334155; color:#fff; padding:10px; border-radius:12px; border:none; cursor:pointer;}
+.admin-btn-small{
+  padding:6px 10px;
+  margin:0 2px;
+  font-size:13px;
+  font-weight:700;
+  color:#38bdf8;
+  border-radius:10px;
+  border:1px solid rgba(56,189,248,.5);
+  background:rgba(255,255,255,0.05);
+  backdrop-filter:blur(6px);
+  cursor:pointer;
+  transition:0.3s;
+}
+.admin-btn-small:hover{
+  background:rgba(56,189,248,0.1);
+}
+.admin-only{display:none;}
+.developer-footer{
+  position:absolute;
+  bottom:-12px;
+  left:50%;
+  transform:translateX(-50%);
+  padding:6px 14px;
+  border:2px solid rgba(255,0,0,0.6);
+  border-radius:20px;
+  color:#ff4d4d;
+  font-size:12px;
+  font-weight:700;
+  text-align:center;
+  text-shadow:0 0 8px rgba(255,0,0,0.4);
+  backdrop-filter:blur(8px);
+  background:rgba(0,0,0,0.2);
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+  <div class="top-inputs" id="inputsBox">
+    <input id="userName" placeholder="اسمك الكامل">
+    <input id="groupName" placeholder="رقم الجروب">
+  </div>
+  <div class="identity" id="identityText"></div>
+
+  <button class="export-btn" onclick="exportPDF()">📄 تصدير كملف PDF</button>
+
+  <table>
+    <thead>
+      <tr>
+        <th>اليوم</th>
+        <th>المهمة</th>
+        <th>الحالة</th>
+        <th class="admin-only">إجراءات</th>
+      </tr>
+    </thead>
+    <tbody id="tasksBody"></tbody>
+  </table>
+
+  <div class="admin-panel" id="adminPanel">
+    <select id="taskDay">
+      <option>الأحد</option><option>الاثنين</option><option>الثلاثاء</option>
+      <option>الأربعاء</option><option>الخميس</option><option>الجمعة</option><option>السبت</option>
+    </select>
+    <input id="taskText" placeholder="مهمة جديدة">
+    <div style="display:flex; gap:10px;">
+      <button onclick="addTask()">إضافة</button>
+      <button onclick="exitAdmin()">💾 حفظ ورجوع</button>
+    </div>
+  </div>
+
+  <button class="admin-btn" id="adminBtn">🛠 تسجيل الدخول كمسؤول</button>
+
+  <div class="developer-footer">ABDO_HMADA © 2025</div>
+</div>
+
+<audio id="successSound" src="https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3"></audio>
+
+<script>
+/* Firebase Config */
+const firebaseConfig = {
+  apiKey: "AIzaSyC-YGNx2l_aGSB-LewMKF-8Gv3fhGhClMY",
+  authDomain: "weekly-taskes.firebaseapp.com",
+  databaseURL: "https://weekly-taskes-default-rtdb.europe-west1.firebasedatabase.app/",
+  projectId: "weekly-taskes",
+  storageBucket: "weekly-taskes.firebasestorage.app",
+  messagingSenderId: "1000288332388",
+  appId: "1:1000288332388:web:c80094bea1730d78a88d71",
+  measurementId: "G-2CLT049QYR"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+/* ثابت */
+const ADMIN_PASSWORD="super_mouslem_549@_+#";
+const days=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+const todayIndex=new Date().getDay();
+let isAdmin=false;
+let tasks=[];
+
+/* الهوية */
+if(localStorage.userName && localStorage.groupName){
+  inputsBox.style.display="none";
+  identityText.textContent=`${localStorage.userName} — جروب ${localStorage.groupName}`;
+}
+[userName,groupName].forEach(i=>{
+  i.onchange=()=>{
+    if(userName.value && groupName.value){
+      localStorage.userName=userName.value;
+      localStorage.groupName=groupName.value;
+      location.reload();
+    }
+  }
+});
+
+/* الأدمن */
+adminBtn.onclick=()=>{
+  if(prompt("كلمة سر المسؤول")===ADMIN_PASSWORD){
+    isAdmin=true;
+    adminPanel.style.display="flex";
+    adminBtn.style.display="none";
+    document.querySelectorAll(".admin-only").forEach(e=>e.style.display="table-cell");
+    render();
+  }
+};
+function exitAdmin(){
+  isAdmin=false;
+  adminPanel.style.display="none";
+  adminBtn.style.display="block";
+  document.querySelectorAll(".admin-only").forEach(e=>e.style.display="none");
+  render();
+}
+
+/* Firebase Live Sync */
+db.ref("weeklyTasks").on("value",snap=>{
+  tasks=snap.val()||[];
+  render();
+});
+
+/* عرض */
+function render(){
+  tasksBody.innerHTML="";
+  days.forEach((day,di)=>{
+    const list=tasks.filter(t=>t.day===day);
+    if(!list.length) return;
+    tasksBody.innerHTML+=`<tr class="day-separator"><td colspan="4">📌 ${day}</td></tr>`;
+    list.forEach(t=>{
+      const i=tasks.indexOf(t);
+      const locked=di>todayIndex && !isAdmin;
+      tasksBody.innerHTML+=`
+      <tr class="${locked?'locked':''} ${t.done?'done':''} ${di===todayIndex?'today':''}">
+        <td>${t.day}</td>
+        <td>${t.text}</td>
+        <td>
+          ${locked?'🔒':'<input type="checkbox" '+(t.done?'checked':'')+' onchange="toggleDone('+i+')">'}
+        </td>
+        <td class="admin-only">
+          <button class="admin-btn-small" onclick="editTask(${i})">✏ تعديل</button>
+          <button class="admin-btn-small" onclick="deleteTask(${i})">🗑 حذف</button>
+        </td>
+      </tr>`;
+    });
+  });
+}
+
+/* عمليات */
+function addTask(){
+  if(!taskText.value) return;
+  tasks.push({day:taskDay.value,text:taskText.value,done:false});
+  db.ref("weeklyTasks").set(tasks);
+  taskText.value="";
+}
+function toggleDone(i){
+  tasks[i].done=!tasks[i].done;
+  db.ref("weeklyTasks").set(tasks);
+}
+function editTask(i){
+  const n=prompt("تعديل المهمة",tasks[i].text);
+  if(n){tasks[i].text=n;db.ref("weeklyTasks").set(tasks);}
+}
+function deleteTask(i){
+  tasks.splice(i,1);
+  db.ref("weeklyTasks").set(tasks);
+}
+function exportPDF(){
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF();
+  let y=15;
+  pdf.text("المهام الأسبوعية",105,y,{align:"center"});
+  y+=10;
+  tasks.forEach(t=>{
+    pdf.text(`- ${t.day} | ${t.text} | ${t.done?"تمت":"لم تتم"}`,10,y);
+    y+=8;
+  });
+  pdf.save("weekly_tasks.pdf");
+}
+</script>
+
+</body>
+</html>
