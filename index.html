@@ -64,9 +64,7 @@ tr.locked{opacity:.45; filter:blur(.4px);}
   cursor:pointer;
   transition:0.3s;
 }
-.admin-btn-small:hover{
-  background:rgba(56,189,248,0.1);
-}
+.admin-btn-small:hover{background:rgba(56,189,248,0.1);}
 .admin-only{display:none;}
 .developer-footer{
   position:absolute;
@@ -123,7 +121,6 @@ tr.locked{opacity:.45; filter:blur(.4px);}
   </div>
 
   <button class="admin-btn" id="adminBtn">🛠 تسجيل الدخول كمسؤول</button>
-
   <div class="developer-footer">ABDO_HMADA © 2025</div>
 </div>
 
@@ -150,11 +147,13 @@ const days=["الأحد","الاثنين","الثلاثاء","الأربعاء",
 const todayIndex=new Date().getDay();
 let isAdmin=false;
 let tasks=[];
+let userId="";
 
 /* الهوية */
 if(localStorage.userName && localStorage.groupName){
   inputsBox.style.display="none";
   identityText.textContent=`${localStorage.userName} — جروب ${localStorage.groupName}`;
+  userId = localStorage.userName+"_"+localStorage.groupName;
 }
 [userName,groupName].forEach(i=>{
   i.onchange=()=>{
@@ -167,47 +166,63 @@ if(localStorage.userName && localStorage.groupName){
 });
 
 /* الأدمن */
-adminBtn.onclick=()=>{
-  if(prompt("كلمة سر المسؤول")===ADMIN_PASSWORD){
-    isAdmin=true;
-    adminPanel.style.display="flex";
-    adminBtn.style.display="none";
-    document.querySelectorAll(".admin-only").forEach(e=>e.style.display="table-cell");
+adminBtn.onclick = () => {
+  if(prompt("كلمة سر المسؤول") === ADMIN_PASSWORD){
+    isAdmin = true;
+    adminPanel.style.display = "flex";
+    adminBtn.style.display = "none";
+    document.querySelectorAll(".admin-only").forEach(e=>{
+      e.style.display = "table-cell";
+    });
     render();
   }
 };
 function exitAdmin(){
-  isAdmin=false;
-  adminPanel.style.display="none";
-  adminBtn.style.display="block";
-  document.querySelectorAll(".admin-only").forEach(e=>e.style.display="none");
+  isAdmin = false;
+  adminPanel.style.display = "none";
+  adminBtn.style.display = "block";
+  document.querySelectorAll(".admin-only").forEach(e=>{
+    e.style.display = "none";
+  });
   render();
 }
 
 /* Firebase Live Sync */
-db.ref("weeklyTasks").on("value",snap=>{
-  tasks=snap.val()||[];
+db.ref("weeklyTasks").on("value", snap => {
+  tasks = snap.val() || [];
   render();
 });
 
-/* عرض */
+/* استرجاع حالة الإنجاز للمستخدم */
+function getUserDoneStatus(){
+  const saved = localStorage.getItem("doneTasks_"+userId);
+  return saved ? JSON.parse(saved) : {};
+}
+
+/* حفظ حالة الإنجاز */
+function saveUserDoneStatus(status){
+  localStorage.setItem("doneTasks_"+userId, JSON.stringify(status));
+}
+
+/* عرض المهام */
 function render(){
   tasksBody.innerHTML="";
+  const userDone = getUserDoneStatus();
   days.forEach((day,di)=>{
-    const list=tasks.filter(t=>t.day===day);
+    const list = tasks.filter(t=>t.day===day);
     if(!list.length) return;
     tasksBody.innerHTML+=`<tr class="day-separator"><td colspan="4">📌 ${day}</td></tr>`;
-    list.forEach(t=>{
-      const i=tasks.indexOf(t);
-      const locked=di>todayIndex && !isAdmin;
+    list.forEach((t,i)=>{
+      const locked = di > todayIndex && !isAdmin;
+      const taskKey = `${t.day}_${t.text}`;
+      const done = userDone[taskKey] || false;
       tasksBody.innerHTML+=`
-      <tr class="${locked?'locked':''} ${t.done?'done':''} ${di===todayIndex?'today':''}">
+      <tr class="${locked?'locked':''} ${done?'done':''} ${di===todayIndex?'today':''}">
         <td>${t.day}</td>
         <td>${t.text}</td>
-        <td>
-          ${locked?'🔒':'<input type="checkbox" '+(t.done?'checked':'')+' onchange="toggleDone('+i+')">'}
+        <td>${locked?'🔒':'<input type="checkbox" '+(done?'checked':'')+' onchange="toggleDone(\''+taskKey+'\')">'}
         </td>
-        <td class="admin-only">
+        <td class="admin-only" style="display:${isAdmin?'table-cell':'none'}">
           <button class="admin-btn-small" onclick="editTask(${i})">✏ تعديل</button>
           <button class="admin-btn-small" onclick="deleteTask(${i})">🗑 حذف</button>
         </td>
@@ -219,17 +234,21 @@ function render(){
 /* عمليات */
 function addTask(){
   if(!taskText.value) return;
-  tasks.push({day:taskDay.value,text:taskText.value,done:false});
+  tasks.push({day:taskDay.value,text:taskText.value});
   db.ref("weeklyTasks").set(tasks);
   taskText.value="";
 }
-function toggleDone(i){
-  tasks[i].done=!tasks[i].done;
-  db.ref("weeklyTasks").set(tasks);
+function toggleDone(taskKey){
+  const status = getUserDoneStatus();
+  status[taskKey] = !status[taskKey];
+  saveUserDoneStatus(status);
+  successSound.currentTime=0;
+  successSound.play();
+  render();
 }
 function editTask(i){
-  const n=prompt("تعديل المهمة",tasks[i].text);
-  if(n){tasks[i].text=n;db.ref("weeklyTasks").set(tasks);}
+  const n = prompt("تعديل المهمة", tasks[i].text);
+  if(n){ tasks[i].text = n; db.ref("weeklyTasks").set(tasks); }
 }
 function deleteTask(i){
   tasks.splice(i,1);
@@ -237,12 +256,17 @@ function deleteTask(i){
 }
 function exportPDF(){
   const {jsPDF}=window.jspdf;
-  const pdf=new jsPDF();
+  const pdf = new jsPDF();
   let y=15;
+  pdf.setFontSize(16);
   pdf.text("المهام الأسبوعية",105,y,{align:"center"});
   y+=10;
+  const userDone = getUserDoneStatus();
   tasks.forEach(t=>{
-    pdf.text(`- ${t.day} | ${t.text} | ${t.done?"تمت":"لم تتم"}`,10,y);
+    const taskKey = `${t.day}_${t.text}`;
+    const done = userDone[taskKey] || false;
+    pdf.setFontSize(12);
+    pdf.text(`- ${t.day} | ${t.text} | ${done?"تمت":"لم تتم"}`,10,y);
     y+=8;
   });
   pdf.save("weekly_tasks.pdf");
